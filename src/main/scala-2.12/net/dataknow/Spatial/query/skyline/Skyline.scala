@@ -4,7 +4,7 @@ import java.io.{File, FileWriter}
 import util.control.Breaks._
 import net.dataknow.DataGenerator.UniformDistGenerator
 import net.dataknow.Spatial.Point
-import net.dataknow.io.{FIleWriter_, FileReader}
+import net.dataknow.io.{FIleWriter_, FileReader, SkylineFileReader}
 
 import scala.collection.mutable
 
@@ -19,13 +19,16 @@ object Skyline {
 
 
 /*
+
     val result =(1 to 100).forall { x=>
       generateInputFile(1000, 6)
+
 */
 
       val NLResult = withResponse(Skyline.BreakableNestedLoop(new File("input")))
       val BNLResult = withResponse(Skyline.NewBlockNestedLoop(new File("input"), 30))
-    println()
+      println()
+
 /*
 
       val res = isSame(NLResult._1, BNLResult._1)
@@ -34,6 +37,7 @@ object Skyline {
 
       res
     }
+
 */
 
 
@@ -150,8 +154,14 @@ object Skyline {
   def NewBlockNestedLoop(input: File, i: Int): Set[Point] = {
 
     val file = new File("skyline")
-    if(file.exists())file.delete()
-    (new File(file.getParent)).listFiles().filter(f => f.getPath.contains("temp")).foreach(f => f.delete())
+    if(file.exists()){
+       (new File(file.getAbsolutePath))
+         .getParentFile
+         .listFiles()
+         .filter(f => f.getPath.contains("temp"))
+         .foreach(f => f.delete())
+      file.delete()
+    }
     NewBlockNestedLoop(input, new File("skyline"), i)
     val result = new mutable.ArrayBuffer[Point]
     val outputReader = new FileReader(new File("skyline"))
@@ -162,11 +172,53 @@ object Skyline {
 
   def NewBlockNestedLoop(input:File, output:File, sizeOfWindow: Int):Unit = {
 
-    val inputReader = new FileReader(input)
+    var inputReader = new SkylineFileReader(input)
     val tempWriter = new FIleWriter_(input.getPath+".temp")
-    val window = new mutable.LinkedHashSet[Point]
-    var writerUsed = false;
+    val window = new mutable.LinkedHashSet[(Point, Int)]
+    var notFinish = true
 
+    while(notFinish) //start Iteration - for File (input or temp)
+    {
+      while(inputReader.hasNext){ //scan all tuples in input file
+
+        val (p, timestamp) = inputReader.ReadTuple //Read a tuple From the given file
+
+        var pIsDominated = false
+        val eliminateFromWindow = new mutable.LinkedHashSet[(Point, Int)]
+
+        breakable {
+          for ( (w, wstamp) <- window) {
+            if( w dominate p){ //case 1
+              pIsDominated = true
+              break
+            }
+            else if (p dominate w)
+              ;
+          }
+          while (iter.hasNext) {
+            val w = iter.next()
+            if (w dominate p) // case 1
+            {
+              pIsDominated = true
+              break
+            }
+            else if (p dominate w) //case 2
+              eliminateFromWindow += w
+
+          }
+        }
+        eliminateFromWindow.foreach(e => window.remove(e)) //case 2
+
+
+      }
+
+      // If we read a tuple from the temporary file with timestamp t,
+      // we can output all tuples from the window with timestamp smaller than t.
+    }
+
+
+
+/*
     while (inputReader.hasNext) {
 
       val p = Point.parseFromCsv(inputReader.ReadLine)
@@ -203,7 +255,11 @@ object Skyline {
 
       if (!pIsDominated) {
         if (window.size < sizeOfWindow) //case 3
-          window += p
+          {
+            window += p/*
+            if(writerUsed)
+              tempWriter.WriteLine(p.toString)*/
+          }
         else {
           writerUsed = true;
           tempWriter.WriteLine(p.toString)
@@ -219,6 +275,7 @@ object Skyline {
     
     if(writerUsed)
       NewBlockNestedLoop(new File(input.getPath+".temp"), new File("skyline"), sizeOfWindow)
+*/
   }
 
   def withResponse(func: =>Set[Point]): (Set[Point], Long) = {
