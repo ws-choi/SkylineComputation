@@ -17,30 +17,28 @@ object Skyline {
 
   def main(args: Array[String]): Unit = {
 
-    val result =(1 to 100).forall { x=>
-      generateInputFile(1000, 2)
+    (1 to 1000).forall { x=>
+
+      generateInputFile(1000, 6)
 
       val NLResult = withResponse(Skyline.BreakableNestedLoop(new File("input")))
       val BNLResult = withResponse(Skyline.BlockNestedLoop(new File("input"), 50))
-      //println()
-
       val res = isSame(NLResult._1, BNLResult._1)
-
       println(x+": NL-" + NLResult._2 +", BNL-"+BNLResult._2 +", result: " + res)
-
       res
     }
 
-
   }
 
+  // generate a random data set and write it to file
   def generateInputFile (size: Int, dim: Int)= {
 
     val writer = new FIleWriter_("input")
     (1 to size).foreach(x=>writer.WriteLine(UniformDistGenerator.next(dim).toString))
-    writer.close
+    writer.close()
   }
 
+  // Simple, Nested, Loop to compute skyline
   def NestedLoop(input: File): Set[Point] = {
 
     val outerReader = new FileReader(input)
@@ -64,6 +62,8 @@ object Skyline {
     outerReader.close()
     result.toSet
   }
+
+  // Simple, Nested, Loop to compute skyline with small optimization by utilizing 'break' statement
   def BreakableNestedLoop(input: File): Set[Point] = {
 
     val outerReader = new FileReader(input)
@@ -92,9 +92,11 @@ object Skyline {
     result.toSet
   }
 
-  def BlockNestedLoop(input: File, i: Int): Set[Point] = {
+  def BlockNestedLoop(input: File, winodwSize: Int): Set[Point] = {
 
     val file = new File("skyline")
+
+    // Delete all temp files
     if(file.exists()){
       System.gc()
        new File(file.getAbsolutePath)
@@ -103,9 +105,12 @@ object Skyline {
          .filter(f => f.getPath.contains("temp"))
          .foreach(f => f.delete())
       file.delete()
-
     }
-    BlockNestedLoop(input, new File("skyline"), i)
+
+    // Compute Skyline
+    BlockNestedLoop(input, new File("skyline"), winodwSize)
+
+    // Read Skyline from file
     val result = new mutable.ArrayBuffer[Point]
     val outputReader = new FileReader(new File("skyline"))
     while(outputReader.hasNext) result += Point.parseFromCsv(outputReader.ReadLine)
@@ -125,7 +130,7 @@ object Skyline {
 
     while(notFinish) //start Iteration - for File (input or temp)
     {
-      var lastTempRead = -1
+
       val tempFileName = "temp" + curTimeStamp
       val tempWriter = new FIleWriter_(tempFileName)
       var tempFileRead = false
@@ -133,74 +138,69 @@ object Skyline {
       while(inputReader.hasNext){ //scan all tuples in input file
 
         tempFileRead = true
-        val (p, timestamp) = inputReader.ReadTuple //Read a tuple From the given file
-        if( timestamp > lastTempRead) lastTempRead = timestamp
+
+        val (p, _) = inputReader.ReadTuple //Read a tuple From the given file
 
         var pIsDominated = false
         val eliminateFromWindow = new mutable.LinkedHashSet[(Point, Int)]
 
         breakable {
-          for ( (w, wstamp) <- window) {
-            if( w dominate p){ //case 1
+          for ( (w, wStamp) <- window) {
+
+            //case 1: p is dominated by a tuple within the window
+            if( w dominate p){
               pIsDominated = true
               break
             }
+
+            //case 2: p dominates one or more tuples in the window
             else if (p dominate w)
-              eliminateFromWindow add (w, wstamp) // case 2
+              eliminateFromWindow add (w, wStamp)
           }
         }
 
+        //case 2: In this case, these tuples are eliminated
         eliminateFromWindow.foreach(e => window.remove(e)) //case 2
 
-        //Compare to Skyline obj
-        if(skylineOutput.exists()){
-          val skylineReader = new FileReader(skylineOutput)
-          breakable {
-            while (skylineReader.hasNext) {
-              val s = Point.parseFromCsv(skylineReader.ReadLine)
-              if (s dominate p) {
-                pIsDominated = true
-                break
-              }
-            }
-          }
+        // (Personally added code) I think this code is not necessary: pIsDominated = pIsDominated || compareToExisting(p)
 
-          skylineReader.close()
-        }
-
+        //case 3: incomparable
         if (!pIsDominated) {
-
-          val writeTimeStamp = getCurrentWithIncrement//if(timestamp == -1) getCurrentWithIncrement else timestamp
-
-          if (window.size < sizeOfWindow) //case 3
-            window add (p, writeTimeStamp)
-
-          else
-              tempWriter.WriteLine(p.toString+"@"+curTimeStamp)
+          // Assign a new timestamp
+          val writeTimeStamp = getCurrentWithIncrement
+          // if there is enough room for p
+          if (window.size < sizeOfWindow) window.add(p, writeTimeStamp)
+          //else write p to temp file
+          else tempWriter.WriteLine(p.toString+"@"+curTimeStamp)
         }
 
       }
 
-      val skyline = window.filter( w_with_stamp => w_with_stamp._2 < lastTempRead)
+      /*If we read a tuple from the temporary file with timestamp t,
+      we can output all tuples from the window with timestamp smaller than t */
+
+      val skyline = window.filter( w_with_stamp => w_with_stamp._2 < inputReader.lastTempRead)
       printSkylinesToFile(skyline)
       skyline.foreach(s => window.remove(s))
 
+      //flush
+      tempWriter.close()
 
-      tempWriter.close //flush
+      // empty temp File: means there is no element to check further. Terminate.
       if(!tempFileRead) {
         notFinish = false
-        printSkylinesToFile(window)
+        printSkylinesToFile(window) //flush elements
         inputReader.close()
       }
-
-      if(input.getPath.contains("temp")) {
+      // else, go to next iteration
+      else{
         inputReader.close()
-        input.deleteOnExit()
+        inputReader = new SkylineFileReader(new File(tempFileName))
       }
 
-      inputReader.close()
-      inputReader = new SkylineFileReader(new File(tempFileName))
     }
+
+    // below is useful method to simplify code by encapsulating sophisticated but not interesting task
 
     def getCurrentWithIncrement = {
       val out = curTimeStamp
@@ -216,6 +216,7 @@ object Skyline {
 
   }
 
+  // also used to simplify code
   def withResponse(func: =>Set[Point]): (Set[Point], Long) = {
     val start = System.currentTimeMillis()
     val res = func
