@@ -5,13 +5,13 @@ object Point{
 
   def parseFromCsv(string:String): Point ={
     val values = string.split(",").map(string => string.toDouble).array
-    Point(values.size, values)
+    Point(values.length, values)
   }
 }
 class Point(val dim: Int, val values:Array[Double]){
 
   override def equals(obj: scala.Any): Boolean = {
-    if (super.equals(obj)) true
+    if (super.equals(obj)) return true
     val other = obj.asInstanceOf[Point]
     this.dim == other.dim && this.values.zip(other.values).forall( pair => pair._1 == pair._2)
   }
